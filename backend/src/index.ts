@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -167,6 +168,23 @@ app.get("/dashboard", async (_req, res) => {
       }
     }
   });
+
+app.get("/dashboard/runs", async (req, res) => {
+  try {
+    const limit = Number(req.query.limit ?? 20);
+
+    const runs = await prisma.run.findMany({
+      orderBy: { created_at: "desc" },
+      take: Number.isFinite(limit) ? limit : 20,
+      include: { document: true },
+    });
+
+    return res.json({ runs });
+  } catch (e: any) {
+    return res.status(500).json({ error: "internal_error", details: e?.message });
+  }
+});
+
 
   return res.json({ total_documents, published_documents, today_runs });
 });
