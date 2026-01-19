@@ -1,0 +1,20 @@
+# Node dependencies
+node_modules/
+
+# Prisma generated files
+.prisma/
+node_modules/.prisma/
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
