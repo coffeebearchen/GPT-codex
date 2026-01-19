@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
+import { generateDocumentBody } from "./services/generator";
 
 dotenv.config();
 
@@ -96,37 +97,58 @@ app.get("/documents/:id", async (req, res) => {
 
 app.post("/documents/:id/generate", async (req, res) => {
   const { id } = req.params;
-  const document = await prisma.document.findUnique({ where: { id } });
-  if (!document) {
-    return sendError(res, 404, "document not found");
+  let document: Awaited<ReturnType<typeof prisma.document.findUnique>> | null = null;
+  let promptHead = "";
+
+  try {
+    document = await prisma.document.findUnique({
+      where: { id },
+      include: { source: true }
+    });
+
+    if (!document) {
+      return res.status(404).json({ ok: false, error: "document not found" });
+    }
+
+    const { body, promptHead: generatedPromptHead } = generateDocumentBody(document.source);
+    promptHead = generatedPromptHead;
+
+    await prisma.document.update({
+      where: { id },
+      data: {
+        body
+      }
+    });
+
+    const run = await prisma.run.create({
+      data: {
+        run_type: "generate",
+        status: "success",
+        document_id: id,
+        message: promptHead
+      }
+    });
+
+    return res.json({ ok: true, documentId: id, runId: run.id });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    if (document) {
+      try {
+        await prisma.run.create({
+          data: {
+            run_type: "generate",
+            status: "failed",
+            document_id: document.id,
+            message: promptHead ? `${promptHead} | ${message}` : message
+          }
+        });
+      } catch {
+        // ignore run creation failures
+      }
+    }
+
+    return res.status(500).json({ ok: false, error: message });
   }
-
-  let body = document.body || "";
-  if (document.source_id) {
-    const source = await prisma.source.findUnique({ where: { id: document.source_id } });
-    if (source) {
-      body = `${source.content}`;
-    }
-  }
-
-  const updatedDocument = await prisma.document.update({
-    where: { id },
-    data: {
-      body,
-      status: "generated"
-    }
-  });
-
-  const run = await prisma.run.create({
-    data: {
-      run_type: "generate",
-      status: "success",
-      document_id: id,
-      message: "Generated content from source"
-    }
-  });
-
-  return res.json({ document: updatedDocument, run });
 });
 
 app.post("/documents/:id/publish", async (req, res) => {
