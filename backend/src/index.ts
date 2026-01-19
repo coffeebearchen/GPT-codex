@@ -13,21 +13,33 @@ app.use(express.json());
 
 const port = Number(process.env.PORT || 4000);
 
+type ErrorDetails = Record<string, unknown>;
+
+function sendError(res: express.Response, status: number, error: string, details?: ErrorDetails) {
+  return res.status(status).json(details ? { error, details } : { error });
+}
+
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
 app.post("/sources", async (req, res) => {
   const { title, source_type, content } = req.body;
-  if (!title || !source_type || !content) {
-    return res.status(400).json({ error: "title, source_type, content are required" });
+  if (typeof title !== "string" || !title.trim()) {
+    return sendError(res, 400, "Invalid title", { field: "title" });
+  }
+  if (typeof source_type !== "string" || !source_type.trim()) {
+    return sendError(res, 400, "Invalid source_type", { field: "source_type" });
+  }
+  if (typeof content !== "string" || !content.trim()) {
+    return sendError(res, 400, "Invalid content", { field: "content" });
   }
 
   const source = await prisma.source.create({
     data: {
-      title,
-      source_type,
-      content
+      title: title.trim(),
+      source_type: source_type.trim(),
+      content: content.trim()
     }
   });
 
@@ -41,13 +53,23 @@ app.get("/sources", async (_req, res) => {
 
 app.post("/documents", async (req, res) => {
   const { title, source_id } = req.body;
-  if (!title) {
-    return res.status(400).json({ error: "title is required" });
+  if (typeof title !== "string" || !title.trim()) {
+    return sendError(res, 400, "Invalid title", { field: "title" });
+  }
+
+  if (source_id !== undefined && source_id !== null) {
+    if (typeof source_id !== "string" || !source_id.trim()) {
+      return sendError(res, 400, "Invalid source_id", { field: "source_id" });
+    }
+    const source = await prisma.source.findUnique({ where: { id: source_id } });
+    if (!source) {
+      return sendError(res, 400, "source_id not found", { field: "source_id" });
+    }
   }
 
   const document = await prisma.document.create({
     data: {
-      title,
+      title: title.trim(),
       source_id: source_id ?? null,
       status: "draft",
       body: ""
@@ -66,7 +88,7 @@ app.get("/documents/:id", async (req, res) => {
   const { id } = req.params;
   const document = await prisma.document.findUnique({ where: { id } });
   if (!document) {
-    return res.status(404).json({ error: "document not found" });
+    return sendError(res, 404, "document not found");
   }
   return res.json(document);
 });
@@ -75,7 +97,7 @@ app.post("/documents/:id/generate", async (req, res) => {
   const { id } = req.params;
   const document = await prisma.document.findUnique({ where: { id } });
   if (!document) {
-    return res.status(404).json({ error: "document not found" });
+    return sendError(res, 404, "document not found");
   }
 
   let body = document.body || "";
@@ -110,7 +132,7 @@ app.post("/documents/:id/publish", async (req, res) => {
   const { id } = req.params;
   const document = await prisma.document.findUnique({ where: { id } });
   if (!document) {
-    return res.status(404).json({ error: "document not found" });
+    return sendError(res, 404, "document not found");
   }
 
   const updatedDocument = await prisma.document.update({
@@ -149,10 +171,18 @@ app.get("/dashboard", async (_req, res) => {
   return res.json({ total_documents, published_documents, today_runs });
 });
 
+app.get("/dashboard/runs", async (_req, res) => {
+  const runs = await prisma.run.findMany({
+    orderBy: { created_at: "desc" },
+    include: { document: true }
+  });
+  return res.json(runs);
+});
+
 app.post("/jobs", async (req, res) => {
   const { job_type, payload_json } = req.body;
   if (!job_type || !payload_json) {
-    return res.status(400).json({ error: "job_type and payload_json are required" });
+    return sendError(res, 400, "job_type and payload_json are required");
   }
 
   const job = await prisma.job.create({
@@ -225,7 +255,7 @@ app.post("/jobs/:id/run", async (req, res) => {
   const { id } = req.params;
   const job = await prisma.job.findUnique({ where: { id } });
   if (!job) {
-    return res.status(404).json({ error: "job not found" });
+    return sendError(res, 404, "job not found");
   }
 
   try {
@@ -259,7 +289,7 @@ app.post("/jobs/:id/run", async (req, res) => {
       where: { id },
       data: { status: "failed" }
     });
-    return res.status(400).json({ error: message, job: updatedJob });
+    return sendError(res, 400, message, { job: updatedJob });
   }
 });
 
